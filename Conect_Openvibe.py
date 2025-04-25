@@ -45,7 +45,7 @@ print("Potência relativa Beta:", beta)
 
 
 
-#Teste na Prática com openvibe
+#Teste na Prática com openvibe sem simulação
 
 
 from pylsl import StreamInlet, resolve_byprop
