@@ -1,3 +1,5 @@
+
+'''
 import mne
 from mne.datasets import eegbci
 from mne.io import read_raw_gdf
@@ -28,14 +30,14 @@ epochs = mne.Epochs(raw, events, event_id=label_map,
 X = epochs.get_data()  # shape: (n_trials, n_channels, n_times)
 y = epochs.events[:, -1]
 
-
+'''
 
 
 
 # outro exemplo
 
 
-'''
+
 from pylsl import StreamInlet, resolve_byprop
 from scipy.signal import butter, lfilter
 import numpy as np
@@ -111,4 +113,4 @@ while True:
             classificar(window)
             window = []  # Reinicia a janela
 
-'''
+
