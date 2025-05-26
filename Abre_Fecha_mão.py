@@ -1,3 +1,5 @@
+#fazer experimento com exoesqueleto
+
 from pylsl import StreamInlet, resolve_byprop
 import time
 import numpy as np
