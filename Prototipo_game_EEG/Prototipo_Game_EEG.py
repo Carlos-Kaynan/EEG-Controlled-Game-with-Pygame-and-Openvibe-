@@ -1,4 +1,8 @@
 
+
+#CÓDIGO FUNCIONAL EM DESTAQUE, O CÓDIGO COMENTADO É UM TESTE
+
+
 '''
 import pygame
 import sys
