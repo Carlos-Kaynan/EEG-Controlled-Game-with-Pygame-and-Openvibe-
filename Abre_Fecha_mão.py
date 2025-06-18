@@ -1,9 +1,14 @@
 #fazer experimento com exoesqueleto
 
+
+
+
 from pylsl import StreamInlet, resolve_byprop
 import time
 import numpy as np
 from scipy.signal import butter, lfilter, welch
+
+
 
 # Funções auxiliares para filtragem
 def butter_bandpass(lowcut, highcut, fs, order=4):
@@ -26,6 +31,27 @@ streams = resolve_byprop('name', 'openvibeSignal')
 if not streams:
     print("Nenhum stream encontrado.")
     exit()
+'''
+Mostra a ordem dos canais para conectar com C3 e C4 no canal certo
+
+# Cria o inlet
+inlet = StreamInlet(streams[0])
+
+# Obter informações dos canais
+info = inlet.info()
+desc = info.desc()
+
+# Pega os nomes dos canais
+ch = desc.child('channels').child('channel')
+channel_names = []
+for i in range(info.channel_count()):
+    label = ch.child_value('label')
+    channel_names.append(label)
+    ch = ch.next_sibling()
+
+print("🧠 Ordem dos canais no LSL:", channel_names)
+
+'''
 
 inlet = StreamInlet(streams[0])
 print("Coletando e classificando sinais EEG...")
