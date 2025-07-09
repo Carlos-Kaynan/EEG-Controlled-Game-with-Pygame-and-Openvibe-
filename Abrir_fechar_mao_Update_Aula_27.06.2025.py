@@ -1,4 +1,4 @@
-
+# -*- coding: utf-8 -*
 #original
 '''
 from pylsl import StreamInlet, resolve_byprop
