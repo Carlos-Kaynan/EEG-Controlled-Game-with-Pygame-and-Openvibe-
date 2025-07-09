@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*
 # realtime_motor_classifier.py
 # Usa o modelo SVM para classificar sinais EEG em tempo real: abrir, fechar ou neutro
 
