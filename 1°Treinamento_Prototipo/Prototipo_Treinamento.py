@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*
 # treinamento_motor_imagery.py
 # Treina um classificador com 3 classes: abrir mão direita, fechar mão esquerda, e descanso
 
