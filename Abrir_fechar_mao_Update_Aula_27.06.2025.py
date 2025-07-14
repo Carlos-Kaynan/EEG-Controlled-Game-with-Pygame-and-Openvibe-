@@ -31,7 +31,7 @@ finally:
 
 
 """"
-/*#fazer experimento com exoesqueleto
+/*#fazer experimento com exoesqueleto da mão 
 
 from pylsl import StreamInlet, resolve_byprop
 import time
