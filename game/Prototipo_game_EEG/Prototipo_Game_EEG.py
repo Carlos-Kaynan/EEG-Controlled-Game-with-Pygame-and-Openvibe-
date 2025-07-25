@@ -1,10 +1,4 @@
 
-
-#CÓDIGO FUNCIONAL EM DESTAQUE, O CÓDIGO COMENTADO É UM TESTE
-
-
-
-
 import pygame
 import sys
 import time
@@ -97,9 +91,9 @@ fonte = pygame.font.SysFont(None, 48)
 
 # Carregar backgrounds
 backgrounds = [
-    pygame.image.load("C:\\Users\\carlo\\OneDrive\Área de Trabalho\\cidade.jpg").convert(),
-    pygame.image.load("C:\\Users\\carlo\\OneDrive\Área de Trabalho\\floresta.jpg").convert(),
-    pygame.image.load("C:\\Users\\carlo\OneDrive\\Área de Trabalho\\gelo2.jpg").convert()
+    pygame.image.load("C:\\Users\humbe\OneDrive\\Documentos\\GitHub\EEG-Controlled-Game-with-Pygame-and-Openvibe-\\game\Prototipo_game_EEG\\cidade.jpg").convert(),
+    pygame.image.load("C:\\Users\\humbe\\OneDrive\\Documentos\\GitHub\\EEG-Controlled-Game-with-Pygame-and-Openvibe-\\game\\Prototipo_game_EEG\\floresta.jpg").convert(),
+    pygame.image.load("C:\\Users\\humbe\\OneDrive\\Documentos\\GitHub\\EEG-Controlled-Game-with-Pygame-and-Openvibe-\\game\\Prototipo_game_EEG\\gelo2.jpg").convert()
 ]
 
 backgrounds = [pygame.transform.scale(bg, (LARGURA, ALTURA)) for bg in backgrounds]
