@@ -1,0 +1,109 @@
+import numpy as np
+import time
+from pylsl import StreamInlet, resolve_stream
+from mne.decoding import CSP
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.pipeline import Pipeline
+
+
+class EEGStream:
+    def __init__(self, n_canais: int = 14, fs: int = 250):
+        self.n_canais = n_canais
+        self.fs = fs
+        print("🔍 Procurando stream EEG...")
+        streams = resolve_stream("type", "EEG")
+        self.inlet = StreamInlet(streams[0])
+        print("✅ Stream EEG encontrado!")
+
+    def coletar_dados(self, classe: int, duracao: int) -> np.ndarray:
+        print(f"==> Inicie o movimento da mão {'ESQUERDA' if classe == 0 else 'DIREITA'} por {duracao}s")
+        time.sleep(2)
+        dados = []
+        inicio = time.time()
+
+        while (time.time() - inicio) < duracao:
+            sample, _ = self.inlet.pull_sample()
+            dados.append(sample[:self.n_canais])
+
+        return np.array(dados).T
+
+    def coletar_amostra(self) -> np.ndarray:
+        sample, _ = self.inlet.pull_sample()
+        return np.array(sample[:self.n_canais])
+
+
+class EEGPreprocessador:
+    def __init__(self, janela: int = 250):
+        self.janela = janela
+
+    def criar_epocas(self, sinal: np.ndarray, classe: int):
+        X, y = [], []
+        n_amostras = sinal.shape[1]
+
+        for i in range(0, n_amostras - self.janela, self.janela):
+            epoca = sinal[:, i:i + self.janela]
+            X.append(epoca)
+            y.append(classe)
+
+        return X, y
+
+
+class EEGClassificador:
+    def __init__(self, n_componentes: int = 6):
+        self.csp = CSP(n_components=n_componentes, reg=None, log=True, norm_trace=False)
+        self.lda = LDA()
+        self.clf = Pipeline([("CSP", self.csp), ("LDA", self.lda)])
+
+    def treinar(self, X: np.ndarray, y: np.ndarray):
+        self.clf.fit(X, y)
+        print("✅ Treinamento concluído!")
+
+    def prever(self, epoca: np.ndarray) -> int:
+        return self.clf.predict(epoca)[0]
+
+
+class EEGPipeline:
+    def __init__(self, fs=250, n_canais=14, janela=250, duracao_treino=30):
+        self.fs = fs
+        self.n_canais = n_canais
+        self.janela = janela
+        self.duracao_treino = duracao_treino
+
+        self.stream = EEGStream(n_canais, fs)
+        self.preprocessador = EEGPreprocessador(janela)
+        self.classificador = EEGClassificador()
+
+    def treinar(self):
+        print("\n=== Fase de Treinamento ===")
+        esquerda = self.stream.coletar_dados(0, self.duracao_treino)
+        direita = self.stream.coletar_dados(1, self.duracao_treino)
+
+        X_e, y_e = self.preprocessador.criar_epocas(esquerda, 0)
+        X_d, y_d = self.preprocessador.criar_epocas(direita, 1)
+
+        X = np.array(X_e + X_d)
+        y = np.array(y_e + y_d)
+
+        print(f"📊 Shape treino X: {X.shape}, y: {y.shape}")
+
+        self.classificador.treinar(X, y)
+
+    def classificar_online(self):
+        print("\n=== Classificação Online ===")
+        buffer = []
+
+        while True:
+            amostra = self.stream.coletar_amostra()
+            buffer.append(amostra)
+
+            if len(buffer) >= self.janela:
+                X_live = np.array(buffer).T[np.newaxis, :, :]
+                pred = self.classificador.prever(X_live)
+                print("🖐️ Esquerda" if pred == 0 else "🖐️ Direita")
+                buffer = []
+
+
+if __name__ == "__main__":
+    pipeline = EEGPipeline()
+    pipeline.treinar()
+    pipeline.classificar_online()

@@ -81,6 +81,6 @@ class EEGAnalyzer:
 
 # === Execução ===
 if __name__ == "__main__":
-    arquivo_csv = 'record-[2025.07.02-16.06.25].csv'
+    arquivo_csv = 'Coletas/record-[2025.07.02-16.06.25].csv'
     analisador = EEGAnalyzer(arquivo_csv, fs=250)
     analisador.analisar()
