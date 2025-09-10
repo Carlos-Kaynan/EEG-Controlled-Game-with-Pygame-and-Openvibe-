@@ -1,176 +1,298 @@
 import numpy as np
 import time
-import matplotlib.pyplot as plt
-from pylsl import StreamInlet, resolve_stream
+import matplotlib.pyplot as plt 
+from pylsl import StreamInlet, resolve_streams, resolve_byprop
+from scipy.signal import butter, lfilter, iirnotch
 from mne.decoding import CSP
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC
 from sklearn.model_selection import cross_val_score
+from sklearn.metrics import confusion_matrix, classification_report
+import joblib
+from typing import List, Tuple
+
+# ================================================================
+# === CENTRAL DE CONFIGURAÇÕES ===
+# ================================================================
+CONFIG = {
+    # Parâmetros do EEG (N_CANAIS será detectado automaticamente)
+    "FS": 250,  # Taxa de amostragem (Hz)
+    "N_CANAIS": 14, # Valor padrão, será sobrescrito pela detecção automática
+    "CANAIS_EOG": [], # Desabilitado por padrão. Ex: [0, 13] se tiver canais EOG
+
+    # Parâmetros de Filtros
+    "LOWCUT": 8.0,  # Frequência de corte inferior para passa-banda
+    "HIGHCUT": 30.0, # Frequência de corte superior para passa-banda
+    "NOTCH_FREQ": 60.0, # Frequência do filtro notch (rede elétrica)
+    "NOTCH_Q": 30,
+
+    # Parâmetros de Treinamento
+    "DURACAO_TAREFA": 30, # Duração de cada tarefa de imaginação (em segundos)
+    "DURACAO_DESCANSO": 10, # Duração do descanso entre tarefas
+    "JANELA_S": 1.0, # Tamanho da janela de época em segundos
+    "JANELA_AMOSTRAS": int(250 * 1.0), # Tamanho da janela em amostras
+
+    # Parâmetros do Modelo
+    "MODELO": "LDA",  # "LDA" ou "SVM"
+    "CSP_COMPONENTES": 4, # Número de componentes para o CSP
+    "NOME_ARQUIVO_MODELO": "modelo_bci_motor.pkl",
+}
 
 
+# ================================================================
+# === FILTROS DE PRÉ-PROCESSAMENTO ===
+# ================================================================
+def butter_bandpass(lowcut: float, highcut: float, fs: int, order: int = 4) -> Tuple[np.ndarray, np.ndarray]:
+    """Cria os coeficientes para um filtro Butterworth passa-banda."""
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(order, [low, high], btype="band")
+    return b, a
+
+def aplicar_bandpass(sinal: np.ndarray, config: dict) -> np.ndarray:
+    """Aplica um filtro passa-banda ao sinal EEG."""
+    b, a = butter_bandpass(config["LOWCUT"], config["HIGHCUT"], config["FS"])
+    return lfilter(b, a, sinal, axis=1)
+
+def aplicar_notch(sinal: np.ndarray, config: dict) -> np.ndarray:
+    """Aplica um filtro notch para remover ruído da rede elétrica."""
+    b, a = iirnotch(w0=config["NOTCH_FREQ"] / (config["FS"] / 2), Q=config["NOTCH_Q"])
+    return lfilter(b, a, sinal, axis=1)
+
+def remover_artefatos_olhos(sinal: np.ndarray, config: dict) -> np.ndarray:
+    """Remove artefatos de piscadas usando regressão linear simples."""
+    if not config["CANAIS_EOG"]:
+        return sinal
+    sinal_limpo = sinal.copy()
+    for canal_eog_idx in config["CANAIS_EOG"]:
+        if canal_eog_idx < sinal.shape[0]: # Verifica se o canal EOG existe
+            eog = sinal[canal_eog_idx, :]
+            ganho = np.dot(sinal, eog) / np.dot(eog, eog)
+            sinal_limpo -= np.outer(ganho, eog)
+    return sinal_limpo
+
+
+# ================================================================
+# === CLASSE DE COLETA DO LSL (COM DETECÇÃO AUTOMÁTICA) ===
+# ================================================================
 class EEGStream:
-    """Classe para gerenciar a conexão e coleta de dados do LSL."""
-    def __init__(self, n_canais: int = 14, fs: int = 250):
-        self.n_canais = n_canais
-        self.fs = fs
-
-        print("🔍 Procurando stream EEG...")
-        streams = resolve_stream("type", "EEG", timeout=5.0)
+    """Gerencia a conexão e coleta de dados de um stream EEG LSL."""
+    def __init__(self, config: dict):
+        self.config = config
+        print("🔍 Procurando stream EEG na rede...")
+        streams = resolve_byprop('name', 'openvibeSignal')
         if not streams:
-            raise RuntimeError("❌ Nenhum stream EEG encontrado! Verifique o OpenViBE.")
+            raise RuntimeError("❌ Nenhum stream EEG encontrado! Verifique o OpenViBE ou outro software de streaming.")
+        
         self.inlet = StreamInlet(streams[0])
-        print("✅ Stream EEG encontrado!")
+        
+        info = self.inlet.info()
+        channel_count = info.channel_count()
+        
+        if self.config["N_CANAIS"] != channel_count:
+            print(f"⚠️ Aviso: O número de canais foi ajustado de {self.config['N_CANAIS']} para {channel_count} (detectado do stream).")
+            self.config["N_CANAIS"] = channel_count
+            
+        print(f"✅ Stream EEG '{info.name()}' encontrado com {self.config['N_CANAIS']} canais!")
 
-    def coletar_dados(self, classe: int, duracao: int) -> np.ndarray:
-        """
-        Coleta dados de EEG para uma classe específica.
-        Usa pull_chunk() para melhor desempenho.
-        """
-        print(f"==> Inicie o movimento da mão {'ESQUERDA' if classe == 0 else 'DIREITA'} por {duracao}s")
-        time.sleep(2)
-        dados = []
-        inicio = time.time()
-
-        while (time.time() - inicio) < duracao:
-            samples, _ = self.inlet.pull_chunk(timeout=1.0, max_samples=self.fs)
+    def coletar_dados(self, duracao: int) -> np.ndarray:
+        """Coleta dados por uma duração específica em segundos."""
+        n_amostras_total = duracao * self.config["FS"]
+        dados = np.zeros((n_amostras_total, self.config["N_CANAIS"]))
+        
+        amostras_coletadas = 0
+        while amostras_coletadas < n_amostras_total:
+            samples, _ = self.inlet.pull_chunk(timeout=1.5, max_samples=self.config["FS"])
             if samples:
-                dados.extend(np.array(samples)[:, :self.n_canais])
+                chunk_array = np.array(samples)
+                n_samples_chunk = chunk_array.shape[0]
+                fim = amostras_coletadas + n_samples_chunk
+                dados[amostras_coletadas:fim, :] = chunk_array[:, :self.config["N_CANAIS"]]
+                amostras_coletadas += n_samples_chunk
+        
+        return dados.T
 
-        return np.array(dados).T  # (n_canais, n_amostras)
 
-    def coletar_amostra(self) -> np.ndarray:
-        """Coleta uma única amostra."""
-        sample, _ = self.inlet.pull_sample()
-        return np.array(sample[:self.n_canais])
-
-
+# ================================================================
+# === CLASSE DE PRÉ-PROCESSAMENTO ===
+# ================================================================
 class EEGPreprocessador:
-    """Classe para criar épocas a partir dos sinais brutos."""
-    def __init__(self, janela: int = 250):
-        self.janela = janela
+    """Responsável por criar épocas a partir do sinal contínuo."""
+    def __init__(self, config: dict):
+        self.config = config
 
-    def criar_epocas(self, sinal: np.ndarray, classe: int):
+    def criar_epocas(self, sinal: np.ndarray, classe: int) -> Tuple[List[np.ndarray], List[int]]:
+        """Divide o sinal contínuo em épocas não sobrepostas."""
         X, y = [], []
+        janela = self.config["JANELA_AMOSTRAS"]
         n_amostras = sinal.shape[1]
-
-        for i in range(0, n_amostras - self.janela, self.janela):
-            epoca = sinal[:, i:i + self.janela]
+        for i in range(0, n_amostras - janela, janela):
+            epoca = sinal[:, i:i + janela]
             X.append(epoca)
             y.append(classe)
-
         return X, y
 
 
+# ================================================================
+# === CLASSE DE CLASSIFICAÇÃO ===
+# ================================================================
 class EEGClassificador:
-    """Classe para treinar e classificar sinais EEG usando CSP + LDA/SVM."""
-    def __init__(self, n_componentes: int = 6, modelo: str = "LDA"):
-        self.modelo = modelo.upper()
-        self.csp = CSP(n_components=n_componentes, reg=None, log=True, norm_trace=False)
-
-        if self.modelo == "SVM":
-            self.clf = Pipeline([("CSP", self.csp), ("SVM", SVC(kernel="rbf", C=1))])
+    """Encapsula o pipeline de classificação (CSP + Classificador)."""
+    def __init__(self, config: dict):
+        self.config = config
+        self.csp = CSP(n_components=config["CSP_COMPONENTES"], reg=None, log=True, norm_trace=False)
+        
+        if config["MODELO"].upper() == "SVM":
+            self.clf = Pipeline([("CSP", self.csp), ("SVM", SVC(kernel="rbf", C=2, gamma="scale"))])
         else:
             self.clf = Pipeline([("CSP", self.csp), ("LDA", LDA())])
 
     def treinar(self, X: np.ndarray, y: np.ndarray):
-        """Treina o classificador com validação cruzada."""
+        """Treina o modelo com validação cruzada e exibe os resultados."""
         print("\n🔄 Avaliando classificador com cross-validation...")
-        scores = cross_val_score(self.clf, X, y, cv=5)
-        print(f"📊 Acurácia média: {scores.mean()*100:.2f}%")
-
-        print("\n🚀 Treinando classificador final...")
+        scores = cross_val_score(self.clf, X, y, cv=5, scoring="accuracy")
+        print(f"📊 Acurácia média: {np.mean(scores)*100:.2f}% (std: {np.std(scores)*100:.2f}%)")
+        
+        print("💪 Treinando modelo final com todos os dados...")
         self.clf.fit(X, y)
         print("✅ Treinamento concluído!")
 
+    def salvar_modelo(self):
+        """Salva o modelo treinado em um arquivo."""
+        nome_arquivo = self.config["NOME_ARQUIVO_MODELO"]
+        joblib.dump(self.clf, nome_arquivo)
+        print(f"💾 Modelo salvo em: {nome_arquivo}")
+
+    def carregar_modelo(self):
+        """Carrega um modelo pré-treinado de um arquivo."""
+        nome_arquivo = self.config["NOME_ARQUIVO_MODELO"]
+        self.clf = joblib.load(nome_arquivo)
+        print(f"📂 Modelo carregado de: {nome_arquivo}")
+
     def prever(self, epoca: np.ndarray) -> int:
-        """Classifica uma única época."""
-        return self.clf.predict(epoca)[0]
+        """Prevê a classe de uma única época."""
+        return self.clf.predict(epoca[np.newaxis, :, :])[0]
 
+# ================================================================
+# === VISUALIZADOR PARA FEEDBACK (AGORA NO CONSOLE) ===
+# ================================================================
+class VisualizadorConsole: # <-- NOVA CLASSE SEM GRÁFICOS
+    """Classe para gerenciar o feedback visual para o usuário via console."""
+    def mostrar_prompt(self, texto: str, cor: str = 'black'):
+        """Exibe um texto no console."""
+        print(f"==> {texto}")
+        
+    def fechar(self):
+        """Método vazio para manter a compatibilidade."""
+        pass
 
+# ================================================================
+# === PIPELINE COMPLETO ===
+# ================================================================
 class EEGPipeline:
-    """Pipeline completo para treino e classificação online."""
-    def __init__(self, fs=250, n_canais=14, janela=250, duracao_treino=30, modelo="LDA"):
-        self.fs = fs
-        self.n_canais = n_canais
-        self.janela = janela
-        self.duracao_treino = duracao_treino
+    """Orquestra todo o processo de BCI, do treinamento à classificação."""
+    def __init__(self, config: dict):
+        self.config = config
+        self.stream = EEGStream(self.config)
+        self.preprocessador = EEGPreprocessador(self.config)
+        self.classificador = EEGClassificador(self.config)
+        self.visualizador = VisualizadorConsole() # <-- USA A NOVA CLASSE
 
-        # Inicializa módulos
-        self.stream = EEGStream(n_canais, fs)
-        self.preprocessador = EEGPreprocessador(janela)
-        self.classificador = EEGClassificador(modelo=modelo)
-        self.predicoes = []  # para gráfico do histórico
+    def _coletar_e_processar_tarefa(self, classe: int, texto_prompt: str) -> Tuple[List[np.ndarray], List[int]]:
+        """Coleta, filtra e epocas os dados para uma única tarefa."""
+        self.visualizador.mostrar_prompt("DESCANSE")
+        time.sleep(self.config["DURACAO_DESCANSO"])
+        
+        self.visualizador.mostrar_prompt(texto_prompt)
+        sinal_bruto = self.stream.coletar_dados(self.config["DURACAO_TAREFA"])
+        
+        sinal_filtrado = aplicar_notch(sinal_bruto, self.config)
+        sinal_filtrado = aplicar_bandpass(sinal_filtrado, self.config)
+        sinal_filtrado = remover_artefatos_olhos(sinal_filtrado, self.config)
+        
+        return self.preprocessador.criar_epocas(sinal_filtrado, classe)
 
     def treinar(self):
-        """Fase de treinamento."""
-        print("\n=== Fase de Treinamento ===")
-        esquerda = self.stream.coletar_dados(0, self.duracao_treino)
-        direita = self.stream.coletar_dados(1, self.duracao_treino)
+        """Executa a fase completa de treinamento."""
+        print("\n=== 🧠 FASE DE TREINAMENTO 🧠 ===")
+        
+        X_e, y_e = self._coletar_e_processar_tarefa(0, "IMAGINE MÃO ESQUERDA")
+        X_d, y_d = self._coletar_e_processar_tarefa(1, "IMAGINE MÃO DIREITA")
 
-        X_e, y_e = self.preprocessador.criar_epocas(esquerda, 0)
-        X_d, y_d = self.preprocessador.criar_epocas(direita, 1)
+        self.visualizador.mostrar_prompt("Processando dados...")
 
         X = np.array(X_e + X_d)
         y = np.array(y_e + y_d)
 
-        if np.isnan(X).any():
-            raise ValueError("⚠️ Dados contêm NaN. Verifique o sinal EEG!")
-
-        print(f"📊 Shape treino X: {X.shape}, y: {y.shape}")
-
+        print(f"\n📊 Shape dos dados de treino: X={X.shape}, y={y.shape}")
         self.classificador.treinar(X, y)
 
+        y_pred = self.classificador.clf.predict(X)
+        cm = confusion_matrix(y, y_pred)
+        print("\n📌 Matriz de Confusão (dados de treino):")
+        print(cm)
+        print("\n📌 Relatório de Classificação (dados de treino):")
+        print(classification_report(y, y_pred, target_names=["Esquerda", "Direita"]))
+
+        self.classificador.salvar_modelo()
+
     def classificar_online(self):
-        """Classificação em tempo real com gráfico dinâmico."""
-        print("\n=== Classificação Online ===")
-        buffer = []
+        """Inicia a classificação em tempo real com feedback via console."""
+        print("\n=== 🚀 CLASSIFICAÇÃO ONLINE 🚀 ===")
+        print("Pressione Ctrl+C para sair.")
+        self.visualizador.mostrar_prompt("Iniciando...")
+        
+        try:
+            while True:
+                samples, _ = self.stream.inlet.pull_chunk(
+                    timeout=2.0, max_samples=self.config["JANELA_AMOSTRAS"]
+                )
+                if len(samples) < self.config["JANELA_AMOSTRAS"]:
+                    continue
+                
+                epoca_bruta = np.array(samples).T[:self.config["N_CANAIS"], :]
+                
+                epoca_filtrada = aplicar_notch(epoca_bruta, self.config)
+                epoca_filtrada = aplicar_bandpass(epoca_filtrada, self.config)
+                epoca_filtrada = remover_artefatos_olhos(epoca_filtrada, self.config)
+                
+                predicao = self.classificador.prever(epoca_filtrada)
+                
+                if predicao == 0:
+                    print("Predição: 🖐️ ESQUERDA")
+                else:
+                    print("Predição: DIREITA 🖐️")
 
-        # Configura gráfico em tempo real
-        plt.ion()
-        fig, (ax_sinal, ax_pred) = plt.subplots(2, 1, figsize=(10, 6))
+        except KeyboardInterrupt:
+            print("\nEncerrando a classificação online.")
+        finally:
+            self.visualizador.fechar()
 
-        # Gráfico do sinal EEG (canal 1)
-        ax_sinal.set_title("Sinal EEG - Canal 1")
-        linha_sinal, = ax_sinal.plot(np.zeros(self.janela))
-        ax_sinal.set_ylim([-200, 200])
 
-        # Gráfico do histórico de predições
-        ax_pred.set_title("Histórico de Predições")
-        linha_pred, = ax_pred.plot([])
-        ax_pred.set_ylim([-0.5, 1.5])
-
-        while True:
-            amostra = self.stream.coletar_amostra()
-            buffer.append(amostra)
-
-            # Mantém buffer deslizante
-            if len(buffer) > self.janela:
-                buffer.pop(0)
-
-            # Atualiza gráfico do sinal
-            sinal_canal1 = [b[0] for b in buffer]
-            linha_sinal.set_ydata(sinal_canal1)
-            linha_sinal.set_xdata(np.arange(len(buffer)))
-            ax_sinal.set_xlim([0, len(buffer)])
-
-            # Classificação com janela deslizante
-            if len(buffer) >= self.janela:
-                X_live = np.array(buffer[-self.janela:]).T[np.newaxis, :, :]
-                pred = self.classificador.prever(X_live)
-                self.predicoes.append(pred)
-
-                # Atualiza histórico de predições
-                linha_pred.set_ydata(self.predicoes)
-                linha_pred.set_xdata(np.arange(len(self.predicoes)))
-                ax_pred.set_xlim([0, len(self.predicoes)])
-
-                print("🖐️ Esquerda" if pred == 0 else "🖐️ Direita")
-
-            plt.pause(0.01)
+# ================================================================
+# === PONTO DE ENTRADA ===
+# ================================================================
+def main():
+    """Função principal que inicia o pipeline."""
+    try:
+        pipeline = EEGPipeline(CONFIG)
+        
+        # --- LÓGICA SIMPLIFICADA: Treina e depois classifica ---
+        print("Iniciando o protocolo de treinamento...")
+        pipeline.treinar()
+        
+        print("\nCarregando modelo para iniciar a classificação online...")
+        pipeline.classificador.carregar_modelo()
+        pipeline.classificar_online()
+        # --------------------------------------------------------
+        
+    except RuntimeError as e:
+        print(e)
+    except Exception as e:
+        print(f"Ocorreu um erro inesperado: {e}")
 
 
 if __name__ == "__main__":
-    pipeline = EEGPipeline(modelo="LDA")  # Troque para "SVM" se quiser
-    pipeline.treinar()
-    pipeline.classificar_online()
+    main()
