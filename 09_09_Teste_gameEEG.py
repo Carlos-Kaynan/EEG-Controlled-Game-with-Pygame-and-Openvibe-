@@ -89,7 +89,7 @@ def extract_features(eeg_window):
 # ===============================
 print("\n=== FASE DE TREINAMENTO ===")
 X, y = [], []
-n_trials = 20        # aumente para 100+ em treino real
+n_trials = 100        # aumente para 100+ em treino real
 window_size = 3      # segundos por trial
 
 for label, comando in enumerate(["esquerda", "direita"]):
@@ -151,3 +151,4 @@ while running:
     clock.tick(30)
 
 pygame.quit()
+
