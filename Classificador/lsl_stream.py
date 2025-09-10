@@ -1,21 +1,13 @@
-# lsl_stream.py
-
-"""
-Gerencia a conexão e a coleta de dados de um stream EEG via LSL.
-Detecta automaticamente o número de canais do stream.
-"""
-
 import numpy as np
 from pylsl import StreamInlet, resolve_byprop
 
 class EEGStream:
-    """Gerencia a conexão e coleta de dados de um stream EEG LSL."""
     def __init__(self, config: dict):
         self.config = config
-        print("🔍 Procurando stream EEG na rede...")
+        print("Procurando stream EEG na rede...")
         streams = resolve_byprop('name', 'openvibeSignal')
         if not streams:
-            raise RuntimeError("❌ Nenhum stream EEG encontrado! Verifique o OpenViBE ou outro software de streaming.")
+            raise RuntimeError("Nenhum stream EEG encontrado! Verifique o OpenViBE ou outro software de streaming.")
         
         self.inlet = StreamInlet(streams[0])
         
@@ -29,7 +21,6 @@ class EEGStream:
         print(f"✅ Stream EEG '{info.name()}' encontrado com {self.config['N_CANAIS']} canais!")
 
     def coletar_dados(self, duracao: int) -> np.ndarray:
-        """Coleta dados por uma duração específica em segundos."""
         n_amostras_total = duracao * self.config["FS"]
         dados = np.zeros((n_amostras_total, self.config["N_CANAIS"]))
         

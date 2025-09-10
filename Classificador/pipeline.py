@@ -1,16 +1,7 @@
-# pipeline.py
-
-"""
-Orquestra todo o processo de BCI, do treinamento à classificação online,
-utilizando os módulos de stream, pré-processamento, classificação e visualização.
-"""
-
 import numpy as np
 import time
 from sklearn.metrics import confusion_matrix, classification_report
 from typing import List, Tuple
-
-# Importa componentes dos outros arquivos
 from lsl_stream import EEGStream
 from preprocessing import EEGPreprocessador
 from classifier import EEGClassificador
@@ -18,7 +9,6 @@ from visualization import VisualizadorConsole
 import signal_processing as sp
 
 class EEGPipeline:
-    """Orquestra todo o processo de BCI, do treinamento à classificação."""
     def __init__(self, config: dict):
         self.config = config
         self.stream = EEGStream(self.config)
@@ -27,7 +17,6 @@ class EEGPipeline:
         self.visualizador = VisualizadorConsole()
 
     def _coletar_e_processar_tarefa(self, classe: int, texto_prompt: str) -> Tuple[List[np.ndarray], List[int]]:
-        """Coleta, filtra e epocas os dados para uma única tarefa."""
         self.visualizador.mostrar_prompt("DESCANSE")
         time.sleep(self.config["DURACAO_DESCANSO"])
         
@@ -41,8 +30,7 @@ class EEGPipeline:
         return self.preprocessador.criar_epocas(sinal_filtrado, classe)
 
     def treinar(self):
-        """Executa a fase completa de treinamento."""
-        print("\n=== 🧠 FASE DE TREINAMENTO 🧠 ===")
+        print("\n===  FASE DE TREINAMENTO  ===")
         
         X_e, y_e = self._coletar_e_processar_tarefa(0, "IMAGINE MÃO ESQUERDA")
         X_d, y_d = self._coletar_e_processar_tarefa(1, "IMAGINE MÃO DIREITA")
@@ -65,8 +53,7 @@ class EEGPipeline:
         self.classificador.salvar_modelo()
 
     def classificar_online(self):
-        """Inicia a classificação em tempo real com feedback via console."""
-        print("\n=== 🚀 CLASSIFICAÇÃO ONLINE 🚀 ===")
+        print("\n===  CLASSIFICAÇÃO ONLINE  ===")
         print("Pressione Ctrl+C para sair.")
         self.visualizador.mostrar_prompt("Iniciando...")
         
@@ -87,9 +74,9 @@ class EEGPipeline:
                 predicao = self.classificador.prever(epoca_filtrada)
                 
                 if predicao == 0:
-                    print("Predição: 🖐️ ESQUERDA")
+                    print("Predição: ESQUERDA")
                 else:
-                    print("Predição: DIREITA 🖐️")
+                    print("Predição: DIREITA")
 
         except KeyboardInterrupt:
             print("\nEncerrando a classificação online.")
