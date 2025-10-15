@@ -160,6 +160,8 @@ clf.fit(X_train, y_train)
 print("✅ Classificador LDA treinado com sucesso!")
 print("---------------------------------------------")
 
+
+
 # ---------------------------
 # PARTE 5: Jogo Pygame (controlado apenas por EEG)
 # ---------------------------
@@ -169,12 +171,14 @@ pygame.init()
 LARGURA_TELA = 500
 ALTURA_TELA = 700
 tela = pygame.display.set_mode((LARGURA_TELA, ALTURA_TELA))
-pygame.display.set_caption("Controle BCI - Desvie dos Carros")
+pygame.display.setCaption("Controle BCI - Desvie dos Carros")
 
-BRANCO = (255, 255, 255); PRETO = (0, 0, 0); CINZA = (100, 100, 100)
-AMARELO = (255, 255, 0); VERMELHO = (200, 0, 0)
+BRANCO = (255, 255, 255)
+PRETO = (0, 0, 0)
+CINZA = (100, 100, 100)
+AMARELO = (255, 255, 0)
+VERMELHO = (200, 0, 0)
 
-# usa as dimensões do seu segundo código
 carro_jogador_largura, carro_jogador_altura = 60, 90
 carro_inimigo_largura, carro_inimigo_altura = 60, 90
 
@@ -191,16 +195,29 @@ except pygame.error as e:
 pos_x_jogador = (LARGURA_TELA - carro_jogador_largura) // 2
 pos_y_jogador = ALTURA_TELA - carro_jogador_altura - 20
 velocidade_jogador = 8
-velocidade_inimigo = 3  # conforme código 2
+velocidade_inimigo = 3
 
 fonte = pygame.font.SysFont(None, 50)
 fonte_hud = pygame.font.SysFont(None, 36)
 relogio = pygame.time.Clock()
 
+# Variável para animar a pista
+offset_linha = 0
+velocidade_pista = 5  # quanto maior, mais rápido o chão "rola"
+
 def desenhar_pista():
+    global offset_linha
     tela.fill(CINZA)
-    for i in range(ALTURA_TELA // 20):
-        pygame.draw.rect(tela, AMARELO, (LARGURA_TELA / 2 - 5, i * 40, 10, 20))
+
+    # desenha faixas amarelas descendo
+    for i in range(ALTURA_TELA // 40 + 2):
+        y = (i * 40 + offset_linha) % ALTURA_TELA
+        pygame.draw.rect(tela, AMARELO, (LARGURA_TELA / 2 - 5, y, 10, 20))
+
+    # atualiza o deslocamento (movimento)
+    offset_linha += velocidade_pista
+    if offset_linha >= 40:
+        offset_linha = 0
 
 def desenhar_elementos(x_jogador, y_jogador, inimigos):
     desenhar_pista()
@@ -218,102 +235,3 @@ def mostrar_mensagem_final(pontuacao, colisoes):
     tela.blit(texto_colisoes, texto_colisoes.get_rect(center=(LARGURA_TELA / 2, ALTURA_TELA / 2 + 80)))
     pygame.display.flip()
     pygame.time.wait(5000)
-
-def loop_jogo():
-    global pos_x_jogador, comando_eeg
-
-    pontuacao = 0
-    colisoes = 0
-    DURACAO_JOGO = 60  # 1 minuto em segundos (conforme pedido)
-    tempo_inicial = pygame.time.get_ticks()
-    jogo_ativo = True
-    contador_spawn_inimigo = 0
-    carros_inimigos = []
-
-    while jogo_ativo:
-        # Eventos (apenas para permitir fechar a janela)
-        for evento in pygame.event.get():
-            if evento.type == pygame.QUIT:
-                pygame.quit(); sys.exit()
-
-        # Se a thread do EEG reportou erro no stream
-        if comando_eeg == "ERRO_STREAM":
-            tela.fill(PRETO)
-            texto_erro = fonte_hud.render("Erro: Stream LSL não encontrado. Verifique o OpenVibe.", True, VERMELHO)
-            texto_rect = texto_erro.get_rect(center=(LARGURA_TELA/2, ALTURA_TELA/2))
-            tela.blit(texto_erro, texto_rect)
-            pygame.display.flip()
-            pygame.time.wait(5000)
-            jogo_ativo = False
-            continue
-
-        # Tempo
-        tempo_decorrido = (pygame.time.get_ticks() - tempo_inicial) / 1000.0
-        if tempo_decorrido >= DURACAO_JOGO:
-            jogo_ativo = False
-
-        # CONTROLE EXCLUSIVO PELO EEG (sem teclado)
-        if comando_eeg == "ESQUERDA":
-            pos_x_jogador -= velocidade_jogador
-        elif comando_eeg == "DIREITA":
-            pos_x_jogador += velocidade_jogador
-        # se comando_eeg == "PARADO" -> não move
-
-        # Limita posição dentro da tela
-        pos_x_jogador = max(0, min(pos_x_jogador, LARGURA_TELA - carro_jogador_largura))
-
-        # Spawn de inimigos (igual ao código 2)
-        if contador_spawn_inimigo % 100 == 0:
-            pos_x_inimigo = random.randint(0, LARGURA_TELA - carro_inimigo_largura)
-            carros_inimigos.append({'x': pos_x_inimigo, 'y': -carro_inimigo_altura})
-        contador_spawn_inimigo += 1
-
-        # Atualiza inimigos e trata colisão / desvio
-        retangulo_jogador = pygame.Rect(pos_x_jogador, pos_y_jogador, carro_jogador_largura, carro_jogador_altura)
-        for inimigo in carros_inimigos[:]:
-            inimigo['y'] += velocidade_inimigo
-            retangulo_inimigo = pygame.Rect(inimigo['x'], inimigo['y'], carro_inimigo_largura, carro_inimigo_altura)
-
-            if retangulo_jogador.colliderect(retangulo_inimigo):
-                colisoes += 1
-                # remove o inimigo que colidiu (comportamento solicitado)
-                try:
-                    carros_inimigos.remove(inimigo)
-                except ValueError:
-                    pass
-            elif inimigo['y'] > ALTURA_TELA:
-                pontuacao += 1
-                try:
-                    carros_inimigos.remove(inimigo)
-                except ValueError:
-                    pass
-
-        # Desenha tudo
-        desenhar_elementos(pos_x_jogador, pos_y_jogador, carros_inimigos)
-
-        # HUD tempo/pontos/colisões
-        tempo_restante = max(0, DURACAO_JOGO - tempo_decorrido)
-        texto_tempo = fonte_hud.render(f"Tempo: {int(tempo_restante)}", True, BRANCO)
-        texto_pontos = fonte_hud.render(f"Pontos: {pontuacao}", True, AMARELO)
-        texto_colisoes_hud = fonte_hud.render(f"Colisões: {colisoes}", True, VERMELHO)
-        tela.blit(texto_tempo, (10, 10))
-        tela.blit(texto_pontos, (LARGURA_TELA - texto_pontos.get_width() - 10, 10))
-        tela.blit(texto_colisoes_hud, (LARGURA_TELA - texto_colisoes_hud.get_width() - 10, 45))
-
-        pygame.display.flip()
-        relogio.tick(60)
-
-    mostrar_mensagem_final(pontuacao, colisoes)
-    pygame.quit()
-    sys.exit()
-
-# ---------------------------
-# PARTE 6: Execução principal
-# ---------------------------
-if __name__ == '__main__':
-    # Inicia thread do EEG (daemon para encerrar com o processo principal)
-    eeg_thread = threading.Thread(target=classificar_eeg_em_thread, args=(clf, scaler), daemon=True)
-    eeg_thread.start()
-
-    # Inicia jogo (thread principal)
-    loop_jogo()
