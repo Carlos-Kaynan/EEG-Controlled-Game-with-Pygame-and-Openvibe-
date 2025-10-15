@@ -170,8 +170,8 @@ print("---------------------------------------------")
 # ===================================================================
 pygame.init()
 
-LARGURA_TELA = 600
-ALTURA_TELA = 800
+LARGURA_TELA = 400
+ALTURA_TELA = 700
 tela = pygame.display.set_mode((LARGURA_TELA, ALTURA_TELA))
 pygame.display.set_caption("Controle BCI - Desvie dos Carros")
 
@@ -182,8 +182,8 @@ carro_jogador_largura, carro_jogador_altura = 60, 90
 carro_inimigo_largura, carro_inimigo_altura = 60, 90
 
 try:
-    caminho_jogador = "C:\\Users\\carlo\\OneDrive\\Área de Trabalho\\Car_game\\player.png"
-    caminho_inimigo = "C:\\Users\\carlo\\OneDrive\\Área de Trabalho\\Car_game\\enemi.png"
+    caminho_inimigo = "C:\\Users\\carlo\\OneDrive\\Área de Trabalho\\Car_game\\player.png"
+    caminho_jogador = "C:\\Users\\carlo\\OneDrive\\Área de Trabalho\\Car_game\\enemi.png"
     imagem_carro_jogador = pygame.transform.scale(pygame.image.load(caminho_jogador), (carro_jogador_largura, carro_jogador_altura))
     imagem_carro_inimigo = pygame.transform.scale(pygame.image.load(caminho_inimigo), (carro_inimigo_largura, carro_inimigo_altura))
 except pygame.error as e:
@@ -191,8 +191,8 @@ except pygame.error as e:
 
 pos_x_jogador = (LARGURA_TELA - carro_jogador_largura) // 2
 pos_y_jogador = ALTURA_TELA - carro_jogador_altura - 20
-velocidade_jogador = 8
-velocidade_inimigo = 3 # Velocidade reduzida como solicitado
+velocidade_jogador = 6
+velocidade_inimigo = 1 # Velocidade reduzida como solicitado
 
 fonte = pygame.font.SysFont(None, 50)
 fonte_hud = pygame.font.SysFont(None, 36)
@@ -200,7 +200,7 @@ relogio = pygame.time.Clock()
 
 # --- Novas variáveis para pista animada ---
 offset_linha = 0
-velocidade_pista = 6  # ajuste para aumentar/diminuir percepção de movimento
+velocidade_pista = 5  # ajuste para aumentar/diminuir percepção de movimento
 
 def desenhar_pista():
     """Desenha a pista com faixas amarelas em movimento (efeito de estrada rolando)."""
@@ -270,7 +270,7 @@ def loop_jogo():
         pos_x_jogador = max(0, min(pos_x_jogador, LARGURA_TELA - carro_jogador_largura))
 
         # Spawn de inimigos
-        if contador_spawn_inimigo % 100 == 0:
+        if contador_spawn_inimigo % 300 == 0:
             pos_x_inimigo = random.randint(0, LARGURA_TELA - carro_inimigo_largura)
             carros_inimigos.append({'x': pos_x_inimigo, 'y': -carro_inimigo_altura})
         contador_spawn_inimigo += 1
