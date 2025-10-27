@@ -1,4 +1,5 @@
 #Cole o caminho das imagens de acordo com a pasta que você salvou 🫵🏽 
+#execute esse arquivo
 
 import pygame
 from classes.game import Game
