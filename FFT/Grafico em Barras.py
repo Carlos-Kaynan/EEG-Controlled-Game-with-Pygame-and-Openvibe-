@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-
+#use python 3.10
 class EEGAnalyzer:
     def __init__(self, arquivo_csv, fs=250):
         self.arquivo_csv = arquivo_csv
